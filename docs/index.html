@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Breathe</title>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Breathe">
+<meta name="theme-color" content="#000000">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%; background: #000; color: #f5f5f5;
+    font-family: -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif;
+    overflow: hidden; overscroll-behavior: none;
+    -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation; -webkit-touch-callout: none;
+  }
+  body {
+    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+    box-sizing: border-box;
+  }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="circle" aria-label="Breathing circle. Tap to start. Tap again to pause or resume."></canvas>
+<script>
+(function () {
+  // ---- Hard-coded exercise: Fibonacci from 13, 13 s rest between sets, 5 sets, 3-2-1 countdown ----
+  var FIB_START = 13, REST_SECONDS = 13, SETS = 5, COUNTDOWN_SECONDS = 3;
+  var FIB = [1, 2, 3, 5, 8, 13, 21, 34];
+  // Same sequence as the Mac app: 13, 8, 5, 3, 2, 1, 1 (each n: n seconds in, n seconds out)
+  var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse().concat([1]);
+  // One set = [Rest] + in/out pairs. The Rest leads, and the first set skips it,
+  // so it only ever happens between two sets.
+  var phases = [{ name: 'Rest', secs: REST_SECONDS, hold: true }];
+  seq.forEach(function (n) {
+    phases.push({ name: 'Inhale', secs: n, hold: false });
+    phases.push({ name: 'Exhale', secs: n, hold: false });
+  });
+  var FIRST_PHASE = 1;
+
+  var canvas = document.getElementById('circle');
+  var ctx = canvas.getContext('2d');
+
+  // state: ready -> countdown -> running -> done ; paused applies to countdown and running
+  var state = 'ready', paused = false;
+  var phaseIndex = FIRST_PHASE, setsLeft = SETS;
+  var startedAt = 0, pausedAt = 0, pausedAccum = 0;
+
+  function clock() { return performance.now() / 1000; }
+  function now() { return paused ? pausedAt : clock(); }      // time stands still while paused
+  function elapsed() { return now() - startedAt - pausedAccum; }
+  function begin(index) { phaseIndex = index; startedAt = clock(); pausedAccum = 0; }
+
+  // ---- Keep the screen awake only while the exercise is actually moving ----
+  var wakeLock = null;
+  function keepAwake() {
+    try {
+      if ('wakeLock' in navigator) {
+        navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }).catch(function () {});
+      }
+    } catch (e) {}
+  }
+  function letSleep() {
+    try { if (wakeLock) { wakeLock.release(); } } catch (e) {}
+    wakeLock = null;
+  }
+
+  function tap() {
+    if (state === 'ready' || state === 'done') {
+      setsLeft = SETS; paused = false; state = 'countdown'; begin(FIRST_PHASE);
+      keepAwake();
+    } else {
+      paused = !paused;
+      if (paused) { pausedAt = clock(); letSleep(); }
+      else { pausedAccum += clock() - pausedAt; keepAwake(); }
+    }
+    draw();
+  }
+
+  function advance() {
+    var next = phaseIndex + 1;
+    if (next >= phases.length) {
+      next = 0;                                   // Rest, then the next set
+      setsLeft -= 1;
+      if (setsLeft <= 0) { state = 'done'; paused = false; letSleep(); return; }
+    }
+    begin(next);
+  }
+
+  function frame() {
+    if (!paused) {
+      if (state === 'countdown') {
+        if (elapsed() >= COUNTDOWN_SECONDS) { state = 'running'; begin(FIRST_PHASE); }
+      } else if (state === 'running') {
+        if (elapsed() >= phases[phaseIndex].secs) { advance(); }
+      }
+    }
+    draw();
+    requestAnimationFrame(frame);
+  }
+
+  // ---- Drawing (mirrors the Mac app's circle) ----
+  var cssSize = 0;
+  function resize() {
+    var w = window.innerWidth, h = window.innerHeight;
+    cssSize = Math.floor(Math.min(w, h) * 0.86);
+    var dpr = window.devicePixelRatio || 1;
+    canvas.style.width = cssSize + 'px';
+    canvas.style.height = cssSize + 'px';
+    canvas.width = Math.round(cssSize * dpr);
+    canvas.height = Math.round(cssSize * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  function triangle(cx, cy, d) {
+    var h = d * 0.24, w = h * 0.87;
+    ctx.beginPath();
+    ctx.moveTo(cx - w / 3, cy - h / 2);
+    ctx.lineTo(cx + 2 * w / 3, cy);
+    ctx.lineTo(cx - w / 3, cy + h / 2);
+    ctx.closePath();
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fill();
+  }
+
+  function draw() {
+    var side = cssSize; if (!side) { return; }
+    var d = side * 0.96, cx = side / 2, cy = side / 2, r = d / 2;
+    ctx.clearRect(0, 0, side, side);
+
+    // what to show
+    var centerText = '', subText = '', showPlay = false, progress = 0, hold = false;
+    if (state === 'ready') { showPlay = true; subText = SETS + ' sets'; }
+    else if (state === 'done') { showPlay = true; subText = 'Done'; }
+    else if (state === 'countdown') {
+      var e = Math.max(0, Math.min(COUNTDOWN_SECONDS, elapsed()));
+      centerText = String(Math.max(1, Math.ceil(COUNTDOWN_SECONDS - e)));
+      progress = e / COUNTDOWN_SECONDS; hold = true;
+    } else {
+      var p = phases[phaseIndex];
+      var raw = Math.max(0, Math.min(1, elapsed() / p.secs));
+      progress = (p.name === 'Exhale') ? 1 - raw : raw;   // inhale fills, exhale empties
+      hold = p.hold; centerText = p.name; subText = setsLeft + ' sets left';
+    }
+
+    // dark disc
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(40,40,40,0.94)'; ctx.fill();
+
+    // ring / arc, from the top, clockwise
+    var ar = r * 0.88;
+    ctx.lineWidth = Math.max(6, side * 0.022); ctx.lineCap = 'round'; ctx.strokeStyle = '#f5f5f5';
+    if (hold) {
+      ctx.beginPath(); ctx.arc(cx, cy, ar, 0, Math.PI * 2); ctx.stroke();
+    } else if (progress > 0) {
+      ctx.beginPath(); ctx.arc(cx, cy, ar, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke();
+    }
+
+    // centre: play triangle or phase text / countdown digit
+    if (showPlay) {
+      triangle(cx, cy, d);
+    } else {
+      ctx.fillStyle = '#f5f5f5'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '500 ' + Math.round(d * 0.10) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.fillText(centerText, cx, cy);
+    }
+
+    // hold / rest / countdown bar
+    if (hold) {
+      var bw = d * 0.55, bh = Math.max(6, d * 0.03), bx = cx - bw / 2, by = cy + d * 0.08;
+      roundRect(bx, by, bw, bh, 'rgba(255,255,255,0.20)');
+      if (progress > 0) { roundRect(bx, by, bw * progress, bh, 'rgba(255,255,255,0.63)'); }
+    }
+
+    // sets left / run length / Done
+    if (subText) {
+      ctx.fillStyle = '#dcdcdc'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.font = Math.round(d * 0.045) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.fillText(subText, cx, cy - r + d * 0.70);
+    }
+  }
+
+  function roundRect(x, y, w, h, color) {
+    var rr = h / 2;
+    ctx.beginPath();
+    ctx.moveTo(x + rr, y);
+    ctx.lineTo(x + w - rr, y); ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(x + rr, y + h); ctx.arc(x + rr, y + rr, rr, Math.PI / 2, Math.PI * 1.5);
+    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+
+  // Tap anywhere: start, pause, resume
+  document.body.addEventListener('click', tap);
+  // Away from the page (screen locked, app switched): pause, so nothing is missed.
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && (state === 'countdown' || state === 'running') && !paused) {
+      paused = true; pausedAt = clock(); letSleep();
+    }
+  });
+  window.addEventListener('resize', resize);
+  window.addEventListener('orientationchange', function () { setTimeout(resize, 50); });
+
+  resize();
+  requestAnimationFrame(frame);
+
+  // Offline copy: the service worker keeps this page and its icons on the
+  // phone, so the Home Screen icon opens with no network at all.
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('./sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
