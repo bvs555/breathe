@@ -728,18 +728,20 @@ class BreathCircle(QWidget):
         self.progress = 0.0  # 0..1
         self.is_hold = False
         self.show_play = False
+        self.seconds_text = ""   # length of this breath (13, 8, 5 ...) for Fibonacci
         self._pressed_inside = False
         self.setMinimumSize(QSize(520, 520))
         self.setStyleSheet("background: transparent;")
         self.setMouseTracking(True)  # hand cursor only while over the circle
 
     def set_state(self, phase: str, progress: float, cycles_left_text: str, is_hold: bool,
-                  show_play: bool = False):
+                  show_play: bool = False, seconds_text: str = ""):
         self.phase_text = phase
         self.progress = max(0.0, min(1.0, float(progress)))
         self.cycles_left_text = cycles_left_text
         self.is_hold = is_hold
         self.show_play = show_play
+        self.seconds_text = seconds_text
         self.update()
 
     # ---------- Geometry ----------
@@ -848,12 +850,21 @@ class BreathCircle(QWidget):
             painter.setBrush(QColor(255,255,255,160))
             painter.drawRoundedRect(QRectF(bar_x, bar_y, bar_w * self.progress, bar_h), bar_h/2, bar_h/2)
 
+        # this breath's length (Fibonacci), between the phase word and the sets line
+        if self.seconds_text and not self.show_play:
+            painter.setPen(QColor(245, 245, 245, 215))
+            font_s = QFont("Helvetica Neue", int(side*0.06))
+            font_s.setWeight(QFont.Medium)
+            painter.setFont(font_s)
+            painter.drawText(QRectF(rect.x(), cy + circle_d*0.08, rect.width(), circle_d*0.10),
+                             Qt.AlignHCenter | Qt.AlignVCenter, self.seconds_text)
+
         # cycles left / run length / "Done"
         painter.setPen(QColor(220, 220, 220))
         font2 = QFont("Helvetica Neue", int(side*0.03))
         painter.setFont(font2)
         painter.drawText(
-            QRectF(rect.x(), rect.y() + circle_d*0.70, rect.width(), rect.height()*0.25),
+            QRectF(rect.x(), rect.y() + circle_d*0.725, rect.width(), rect.height()*0.25),
             Qt.AlignHCenter | Qt.AlignTop,
             self.cycles_left_text
         )
@@ -899,7 +910,8 @@ class OverlayWindow(QWidget):
         # State mirrored from main window
         self.progress = 0.0
         self.is_hold = False
-        self.center_text = ""   # sets left while running, or the countdown digit
+        self.center_text = ""   # breath length (Fibonacci) or sets left, or the countdown digit
+        self.sub_text = ""      # small sets-left number under the centre text (Fibonacci)
         self.show_play = False  # ready / done: a play triangle instead of text
 
         # Background alpha: 3-255.  Min 3 (~1%) so overlay is always draggable.
@@ -936,13 +948,15 @@ class OverlayWindow(QWidget):
         return False
 
     def set_state(self, progress: float, is_hold: bool, center_text: str = "",
-                  show_play: bool = False):
-        """Mirror the main circle: same arc/ring, a short centre text
-        (sets left, or the countdown digit) or a play triangle."""
+                  show_play: bool = False, sub_text: str = ""):
+        """Mirror the main circle: same arc/ring, a short centre text (the
+        breath length, sets left, or the countdown digit), an optional small
+        sub text (sets left) under it, or a play triangle."""
         self.progress = max(0.0, min(1.0, float(progress)))
         self.is_hold = is_hold
         self.center_text = center_text
         self.show_play = show_play
+        self.sub_text = sub_text
         self.update()
 
     def set_bg_alpha(self, alpha: int):
@@ -1030,12 +1044,21 @@ class OverlayWindow(QWidget):
                 QPointF(cx - tri_w / 3, cy + tri_h / 2),
             ]))
         elif self.center_text:
-            # Sets left while running, or the countdown digit
+            # Breath length (Fibonacci) or sets left while running, or the countdown digit
             painter.setPen(QColor(245, 245, 245, 220))
             font = QFont("Helvetica Neue", int(size * 0.16))
             font.setWeight(QFont.Medium)
             painter.setFont(font)
-            painter.drawText(rect, Qt.AlignCenter, self.center_text)
+            if self.sub_text:
+                # centre number a little higher, small sets-left number under it
+                painter.drawText(rect.adjusted(0, -size * 0.06, 0, -size * 0.06), Qt.AlignCenter, self.center_text)
+                painter.setPen(QColor(245, 245, 245, 150))
+                font_s = QFont("Helvetica Neue", int(size * 0.075))
+                painter.setFont(font_s)
+                painter.drawText(QRectF(rect.x(), cy + size * 0.10, rect.width(), size * 0.12),
+                                 Qt.AlignHCenter | Qt.AlignVCenter, self.sub_text)
+            else:
+                painter.drawText(rect, Qt.AlignCenter, self.center_text)
 
         painter.end()
 
@@ -1667,11 +1690,12 @@ class MainWindow(QMainWindow):
 
     # ---------- Rendering (main circle + overlay always show the same state) ----------
     def _render(self, center_text: str, progress: float, is_hold: bool,
-                sub_text: str = "", show_play: bool = False, overlay_text: str = ""):
+                sub_text: str = "", show_play: bool = False, overlay_text: str = "",
+                seconds_text: str = "", overlay_sub: str = ""):
         """Draw one state on the main circle and mirror it on the overlay."""
-        self.run.circle.set_state(center_text, progress, sub_text, is_hold, show_play)
+        self.run.circle.set_state(center_text, progress, sub_text, is_hold, show_play, seconds_text)
         if self.overlay.isVisible():
-            self.overlay.set_state(progress, is_hold, overlay_text, show_play)
+            self.overlay.set_state(progress, is_hold, overlay_text, show_play, overlay_sub)
 
     def _run_length_text(self) -> str:
         n = max(1, int(self.cycles_total))
@@ -1698,10 +1722,20 @@ class MainWindow(QMainWindow):
         draw_progress = 1.0 - raw if phase_name.lower() == "exhale" else raw
         if self.current_exercise.is_fibonacci:
             cycles_text = f"{self.cycles_left} sets left"
+            # Fibonacci: the length of this breath (13, 8, 5 ...) is the number
+            # that matters, so it goes under the phase word in the window and
+            # becomes the big number on the overlay, with sets left small under it.
+            seconds_text = "" if is_hold else f"{float(phase_seconds):g}"
         else:
             cycles_text = f"{self.cycles_left} cycles left"
-        self._render(phase_name, draw_progress, is_hold,
-                     sub_text=cycles_text, overlay_text=str(self.cycles_left))
+            seconds_text = ""
+        if seconds_text:
+            self._render(phase_name, draw_progress, is_hold, sub_text=cycles_text,
+                         overlay_text=seconds_text, seconds_text=seconds_text,
+                         overlay_sub=str(self.cycles_left))
+        else:
+            self._render(phase_name, draw_progress, is_hold,
+                         sub_text=cycles_text, overlay_text=str(self.cycles_left))
 
     def _render_current(self):
         """Re-draw whatever state we are in (used when the overlay is shown)."""

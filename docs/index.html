@@ -138,7 +138,7 @@
     ctx.clearRect(0, 0, side, side);
 
     // what to show
-    var centerText = '', subText = '', showPlay = false, progress = 0, hold = false;
+    var centerText = '', subText = '', secondsText = '', showPlay = false, progress = 0, hold = false;
     if (state === 'ready') { showPlay = true; subText = SETS + ' sets'; }
     else if (state === 'done') { showPlay = true; subText = 'Done'; }
     else if (state === 'countdown') {
@@ -150,6 +150,7 @@
       var raw = Math.max(0, Math.min(1, elapsed() / p.secs));
       progress = (p.name === 'Exhale') ? 1 - raw : raw;   // inhale fills, exhale empties
       hold = p.hold; centerText = p.name; subText = setsLeft + ' sets left';
+      if (!p.hold) { secondsText = String(p.secs); }   // 13, 8, 5 ... the length of this breath
     }
 
     // dark disc
@@ -181,11 +182,18 @@
       if (progress > 0) { roundRect(bx, by, bw * progress, bh, 'rgba(255,255,255,0.63)'); }
     }
 
+    // this breath's length, between the phase word and the sets line
+    if (secondsText) {
+      ctx.fillStyle = 'rgba(245,245,245,0.85)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = '500 ' + Math.round(d * 0.075) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
+      ctx.fillText(secondsText, cx, cy + d * 0.125);
+    }
+
     // sets left / run length / Done
     if (subText) {
       ctx.fillStyle = '#dcdcdc'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
       ctx.font = Math.round(d * 0.045) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
-      ctx.fillText(subText, cx, cy - r + d * 0.70);
+      ctx.fillText(subText, cx, cy - r + d * 0.72);
     }
   }
 
