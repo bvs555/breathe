@@ -1050,12 +1050,15 @@ class OverlayWindow(QWidget):
             font.setWeight(QFont.Medium)
             painter.setFont(font)
             if self.sub_text:
-                # centre number a little higher, small sets-left number under it
-                painter.drawText(rect.adjusted(0, -size * 0.06, 0, -size * 0.06), Qt.AlignCenter, self.center_text)
-                painter.setPen(QColor(245, 245, 245, 150))
-                font_s = QFont("Helvetica Neue", int(size * 0.075))
+                # breath length a little smaller and higher, sets left readable under it
+                font_c = QFont("Helvetica Neue", int(size * 0.14))
+                font_c.setWeight(QFont.Medium)
+                painter.setFont(font_c)
+                painter.drawText(rect.adjusted(0, -size * 0.08, 0, -size * 0.08), Qt.AlignCenter, self.center_text)
+                painter.setPen(QColor(245, 245, 245, 190))
+                font_s = QFont("Helvetica Neue", int(size * 0.105))
                 painter.setFont(font_s)
-                painter.drawText(QRectF(rect.x(), cy + size * 0.10, rect.width(), size * 0.12),
+                painter.drawText(QRectF(rect.x(), cy + size * 0.09, rect.width(), size * 0.15),
                                  Qt.AlignHCenter | Qt.AlignVCenter, self.sub_text)
             else:
                 painter.drawText(rect, Qt.AlignCenter, self.center_text)
