@@ -78,10 +78,10 @@ def _sanitize_fib_rest(v, default: int = 10) -> int:
     return max(0, min(300, v))
 
 def fibonacci_descending(start: int) -> List[int]:
-    """Fibonacci numbers from `start` down to the two ones that start the
-    sequence, e.g. 8 -> [8, 5, 3, 2, 1, 1]."""
+    """Fibonacci numbers from `start` down to a single 1,
+    e.g. 8 -> [8, 5, 3, 2, 1]."""
     start = _sanitize_fib_start(start)
-    return [n for n in reversed(FIB_CHOICES) if n <= start] + [1]
+    return [n for n in reversed(FIB_CHOICES) if n <= start]
 
 def app_data_dir() -> str:
     if sys.platform == "darwin":

@@ -46,7 +46,7 @@ After editing `breathe_app.py`, rerun `bash setup.command`, or copy the file int
 ### Exercises
 
 Fixed timings (inhale, hold, exhale, hold, repeated N times) or **Fibonacci**: each
-set breathes 13, 8, 5, 3, 2, 1, 1 seconds in and out (or starting from another
+set breathes 13, 8, 5, 3, 2, 1 seconds in and out (or starting from another
 Fibonacci number), with a rest of normal breathing between sets.
 
 ### Everything is remembered
@@ -59,7 +59,7 @@ overlay was showing, and the pop-out toggle. Files live in
 
 ## iPhone page
 
-`docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1, 1 seconds
+`docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1 seconds
 in and out), 13 seconds of rest between sets, 5 sets, a 3-2-1 countdown. No sound,
 no settings. Tap to start, tap to pause or resume. Locking the phone or switching
 apps pauses it; the screen stays awake while it runs.

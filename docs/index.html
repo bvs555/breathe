@@ -35,8 +35,8 @@
   // ---- Hard-coded exercise: Fibonacci from 13, 13 s rest between sets, 5 sets, 3-2-1 countdown ----
   var FIB_START = 13, REST_SECONDS = 13, SETS = 5, COUNTDOWN_SECONDS = 3;
   var FIB = [1, 2, 3, 5, 8, 13, 21, 34];
-  // Same sequence as the Mac app: 13, 8, 5, 3, 2, 1, 1 (each n: n seconds in, n seconds out)
-  var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse().concat([1]);
+  // Same sequence as the Mac app: 13, 8, 5, 3, 2, 1 (each n: n seconds in, n seconds out)
+  var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse();
   // One set = [Rest] + in/out pairs. The Rest leads, and the first set skips it,
   // so it only ever happens between two sets.
   var phases = [{ name: 'Rest', secs: REST_SECONDS, hold: true }];
