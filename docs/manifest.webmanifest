@@ -1,7 +1,7 @@
 {
   "name": "Breathe",
   "short_name": "Breathe",
-  "description": "Fibonacci breathing: 13, 8, 5, 3, 2, 1 seconds in and out, 15 s rest, five sets, spoken cues.",
+  "description": "Fibonacci breathing: 13, 8, 5, 3, 2, 1 seconds in and out, 15 s rest, your number of sets, spoken cues that keep playing in the background.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

@@ -21,245 +21,285 @@
     touch-action: manipulation; -webkit-touch-callout: none;
   }
   body {
-    position: fixed; inset: 0; display: flex; align-items: center; justify-content: center;
+    position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
     padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
-    box-sizing: border-box;
+    box-sizing: border-box; gap: 22px;
   }
   canvas { display: block; }
+  .sets { display: flex; align-items: center; gap: 18px; }
+  .sets button {
+    width: 48px; height: 48px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.18);
+    background: rgba(255,255,255,0.08); color: #f5f5f5; font-size: 28px; line-height: 1; padding: 0;
+    font-family: inherit;
+  }
+  .sets button:active { background: rgba(255,255,255,0.18); }
+  .sets button:disabled { opacity: 0.3; }
+  .sets .count { font-size: 22px; min-width: 96px; text-align: center; font-weight: 500; }
+  .total { font-size: 15px; color: rgba(255,255,255,0.6); min-height: 1.2em; text-align: center; }
 </style>
 </head>
 <body>
 <canvas id="circle" aria-label="Breathing circle. Tap to start. Tap again to pause or resume."></canvas>
+<div class="sets">
+  <button id="less" aria-label="Fewer sets">&minus;</button>
+  <div class="count" id="count">5 sets</div>
+  <button id="more" aria-label="More sets">+</button>
+</div>
+<div class="total" id="total"></div>
+<audio id="voice" playsinline preload="auto"></audio>
 <script>
 (function () {
-  // ---- Hard-coded exercise: Fibonacci from 13, 15 s rest between sets, 5 sets, 3-2-1 countdown ----
-  var FIB_START = 13, REST_SECONDS = 15, SETS = 5, COUNTDOWN_SECONDS = 3;
+  // ---- Exercise: Fibonacci from 13, 15 s rest between sets, 3-2-1 countdown.
+  // The number of sets is yours (1-20) and is remembered on this phone. ----
+  var FIB_START = 13, REST = 15, COUNTDOWN = 3, MIN_SETS = 1, MAX_SETS = 20, DEFAULT_SETS = 5;
   var FIB = [1, 2, 3, 5, 8, 13, 21, 34];
-  // Same sequence as the Mac app: 13, 8, 5, 3, 2, 1 (each n: n seconds in, n seconds out)
-  var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse();
-  // One set = [Rest] + in/out pairs. The Rest leads, and the first set skips it,
-  // so it only ever happens between two sets.
-  var phases = [{ name: 'Rest', secs: REST_SECONDS, hold: true }];
-  seq.forEach(function (n) {
-    phases.push({ name: 'Inhale', secs: n, hold: false });
-    phases.push({ name: 'Exhale', secs: n, hold: false });
-  });
-  var FIRST_PHASE = 1;
+  var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse();   // 13, 8, 5, 3, 2, 1
+  var CLIPS = ['inhale', 'exhale', 'rest', 'done', '1', '2', '3', '4', '5'];
+  var TRACK_RATE = 16000;   // sample rate of the assembled voice track (speech only)
 
-  var canvas = document.getElementById('circle');
-  var ctx = canvas.getContext('2d');
+  var canvas = document.getElementById('circle'), ctx = canvas.getContext('2d');
+  var audio = document.getElementById('voice');
+  var lessBtn = document.getElementById('less'), moreBtn = document.getElementById('more');
+  var countEl = document.getElementById('count'), totalEl = document.getElementById('total');
 
-  // state: ready -> countdown -> running -> done ; paused applies to countdown and running
-  var state = 'ready', paused = false;
-  var phaseIndex = FIRST_PHASE, setsLeft = SETS;
-  var startedAt = 0, pausedAt = 0, pausedAccum = 0;
+  function loadSets() { try { var v = parseInt(localStorage.getItem('breathe.sets'), 10); if (v >= MIN_SETS && v <= MAX_SETS) { return v; } } catch (e) {} return DEFAULT_SETS; }
+  function saveSets(n) { try { localStorage.setItem('breathe.sets', String(n)); } catch (e) {} }
+  var sets = loadSets();
 
-  function clock() { return performance.now() / 1000; }
-  function now() { return paused ? pausedAt : clock(); }      // time stands still while paused
-  function elapsed() { return now() - startedAt - pausedAccum; }
-  function begin(index) {
-    phaseIndex = index; startedAt = clock(); pausedAccum = 0; lastCount = 0;
-    if (state === 'running') { speak(phases[index].name); }
-  }
-
-  // ---- Keep the screen awake only while the exercise is actually moving ----
-  var wakeLock = null;
-  function keepAwake() {
-    try {
-      if ('wakeLock' in navigator) {
-        navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }).catch(function () {});
+  // ---- The timeline: every segment the circle draws, every word the voice says ----
+  function buildSchedule(n) {
+    var segs = [], cues = [], t = 0;
+    segs.push({ t0: 0, t1: COUNTDOWN, name: 'countdown', secs: COUNTDOWN, hold: true, setsLeft: n });
+    cues.push({ t: 0, clip: '3' }, { t: 1, clip: '2' }, { t: 2, clip: '1' });
+    t = COUNTDOWN;
+    for (var s = 0; s < n; s++) {
+      var left = n - s;
+      if (s > 0) {                                   // rest only between sets, counted down 5..1
+        segs.push({ t0: t, t1: t + REST, name: 'Rest', secs: REST, hold: true, setsLeft: left });
+        cues.push({ t: t, clip: 'rest' });
+        for (var k = 5; k >= 1; k--) { cues.push({ t: t + REST - k, clip: String(k) }); }
+        t += REST;
       }
-    } catch (e) {}
+      seq.forEach(function (nn) {
+        segs.push({ t0: t, t1: t + nn, name: 'Inhale', secs: nn, hold: false, setsLeft: left }); cues.push({ t: t, clip: 'inhale' }); t += nn;
+        segs.push({ t0: t, t1: t + nn, name: 'Exhale', secs: nn, hold: false, setsLeft: left }); cues.push({ t: t, clip: 'exhale' }); t += nn;
+      });
+    }
+    cues.push({ t: t, clip: 'done' });
+    return { segments: segs, cues: cues, end: t };
   }
-  function letSleep() {
-    try { if (wakeLock) { wakeLock.release(); } } catch (e) {}
-    wakeLock = null;
+  var sched = buildSchedule(sets);
+
+  function fmt(secs) { var m = Math.floor(secs / 60), s = Math.round(secs - m * 60); return (m ? m + ' min ' : '') + s + ' s'; }
+  function showSets() {
+    countEl.textContent = sets + (sets === 1 ? ' set' : ' sets');
+    totalEl.textContent = 'Total ' + fmt(sched.end - COUNTDOWN) + (trackReady() ? '' : ' · preparing voice…');
+    lessBtn.disabled = sets <= MIN_SETS; moreBtn.disabled = sets >= MAX_SETS;
+    if ('mediaSession' in navigator) {
+      try { navigator.mediaSession.metadata = new MediaMetadata({ title: 'Breathe', artist: 'Fibonacci ' + FIB_START + ' · ' + sets + ' sets' }); } catch (e) {}
+    }
   }
 
-  // ---- Voice: Inhale / Exhale / Rest, the last five seconds of each rest,
-  // the opening 3-2-1 and Done. Uses the phone's own speech, so it works
-  // offline. Eyes closed, you still know where you are. ----
-  var synth = window.speechSynthesis || null;
-  var utterance = null;            // kept so the browser cannot drop it mid-sentence
-  function speak(text) {
-    if (!synth) { return; }
-    try {
-      synth.cancel();              // never let two cues overlap
-      utterance = new SpeechSynthesisUtterance(text);
-      utterance.lang = 'en-US';
-      utterance.rate = 1.0;
-      var voices = synth.getVoices();
-      for (var i = 0; i < voices.length; i++) {
-        if (/^en/.test(voices[i].lang) && /Samantha|Eva/.test(voices[i].name)) { utterance.voice = voices[i]; break; }
-      }
-      synth.speak(utterance);
-    } catch (e) {}
-  }
-  function hush() { try { if (synth) { synth.cancel(); } } catch (e) {} }
-  var lastCount = 0;               // last spoken countdown number for this phase
+  // ---- Voice clips -> one continuous track for the chosen sets ----
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  var clips = null, clipsPromise = null, trackUrl = null, trackSets = 0, renderPromise = null;
 
-  function tap() {
-    if (state === 'ready' || state === 'done') {
-      setsLeft = SETS; paused = false; state = 'countdown'; begin(FIRST_PHASE);
-      keepAwake();
-      lastCount = COUNTDOWN_SECONDS; speak(String(COUNTDOWN_SECONDS));   // spoken inside the tap: unlocks speech on iOS
+  function loadClips() {
+    if (clipsPromise) { return clipsPromise; }
+    var ac = new AC();
+    clipsPromise = Promise.all(CLIPS.map(function (name) {
+      return fetch('voice/' + name + '.m4a').then(function (r) { return r.arrayBuffer(); }).then(function (buf) {
+        return new Promise(function (res, rej) { ac.decodeAudioData(buf, res, rej); });
+      });
+    })).then(function (bufs) {
+      clips = {}; CLIPS.forEach(function (n, i) { clips[n] = bufs[i]; });
+      try { ac.close(); } catch (e) {}
+      return clips;
+    });
+    return clipsPromise;
+  }
+
+  function wavBlob(buffer) {
+    var ch = buffer.getChannelData(0), n = ch.length, out = new DataView(new ArrayBuffer(44 + n * 2));
+    function str(o, s) { for (var i = 0; i < s.length; i++) { out.setUint8(o + i, s.charCodeAt(i)); } }
+    str(0, 'RIFF'); out.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+    out.setUint32(24, buffer.sampleRate, true); out.setUint32(28, buffer.sampleRate * 2, true);
+    out.setUint16(32, 2, true); out.setUint16(34, 16, true); str(36, 'data'); out.setUint32(40, n * 2, true);
+    for (var i = 0, o = 44; i < n; i++, o += 2) { var v = Math.max(-1, Math.min(1, ch[i])); out.setInt16(o, v < 0 ? v * 32768 : v * 32767, true); }
+    return new Blob([out], { type: 'audio/wav' });
+  }
+
+  function renderTrack(n) {
+    var sc = buildSchedule(n);
+    var length = Math.ceil((sc.end + clips.done.duration + 0.5) * TRACK_RATE);
+    var off = new OAC(1, length, TRACK_RATE);
+    sc.cues.forEach(function (c) { var src = off.createBufferSource(); src.buffer = clips[c.clip]; src.connect(off.destination); src.start(c.t); });
+    return new Promise(function (res) {
+      off.oncomplete = function (e) { res(e.renderedBuffer); };
+      var p = off.startRendering(); if (p && p.then) { p.then(res); }
+    }).then(function (buf) {
+      if (trackUrl) { try { URL.revokeObjectURL(trackUrl); } catch (e) {} }
+      trackUrl = URL.createObjectURL(wavBlob(buf)); trackSets = n;
+      return trackUrl;
+    });
+  }
+  function trackReady() { return !!trackUrl && trackSets === sets; }
+  function ensureTrack() {
+    if (trackReady()) { return Promise.resolve(trackUrl); }
+    var want = sets;
+    renderPromise = loadClips().then(function () { return trackReady() ? trackUrl : renderTrack(want); }).then(function (u) { showSets(); return u; });
+    return renderPromise;
+  }
+
+  // A silent clip: played inside the tap so iPhone lets the real track play a moment later
+  function silence() {
+    var n = TRACK_RATE / 10, out = new DataView(new ArrayBuffer(44 + n * 2));
+    function str(o, s) { for (var i = 0; i < s.length; i++) { out.setUint8(o + i, s.charCodeAt(i)); } }
+    str(0, 'RIFF'); out.setUint32(4, 36 + n * 2, true); str(8, 'WAVE'); str(12, 'fmt ');
+    out.setUint32(16, 16, true); out.setUint16(20, 1, true); out.setUint16(22, 1, true);
+    out.setUint32(24, TRACK_RATE, true); out.setUint32(28, TRACK_RATE * 2, true); out.setUint16(32, 2, true); out.setUint16(34, 16, true);
+    str(36, 'data'); out.setUint32(40, n * 2, true);
+    return URL.createObjectURL(new Blob([out], { type: 'audio/wav' }));
+  }
+  var SILENCE = silence();
+
+  // ---- Playback: the audio element is the clock ----
+  var phase = 'ready';   // ready | starting | playing | paused | done
+  function start() {
+    phase = 'starting';
+    if (trackReady()) {
+      audio.src = trackUrl; audio.currentTime = 0;
+      audio.play().then(function () { phase = 'playing'; }).catch(function () { phase = 'ready'; draw(); });
     } else {
-      paused = !paused;
-      if (paused) { pausedAt = clock(); letSleep(); hush(); }
-      else { pausedAccum += clock() - pausedAt; keepAwake(); }
+      audio.src = SILENCE; audio.play().catch(function () {});
+      ensureTrack().then(function (url) {
+        if (phase !== 'starting') { return; }
+        audio.src = url; audio.currentTime = 0;
+        audio.play().then(function () { phase = 'playing'; }).catch(function () { phase = 'ready'; draw(); });
+      });
     }
     draw();
   }
-
-  function advance() {
-    var next = phaseIndex + 1;
-    if (next >= phases.length) {
-      next = 0;                                   // Rest, then the next set
-      setsLeft -= 1;
-      if (setsLeft <= 0) { state = 'done'; paused = false; letSleep(); speak('Done'); return; }
-    }
-    begin(next);
+  function tap() {
+    if (phase === 'ready' || phase === 'done') { start(); }
+    else if (phase === 'playing') { audio.pause(); }
+    else if (phase === 'paused') { audio.play().catch(function () {}); }
+  }
+  audio.addEventListener('play', function () { if (audio.src !== SILENCE) { phase = 'playing'; keepAwake(); showSets(); draw(); } });
+  audio.addEventListener('pause', function () { if (!audio.ended && phase === 'playing') { phase = 'paused'; letSleep(); draw(); } });
+  audio.addEventListener('ended', function () { phase = 'done'; letSleep(); showSets(); draw(); });
+  if ('mediaSession' in navigator) {
+    try {
+      navigator.mediaSession.setActionHandler('play', function () { if (phase === 'paused') { audio.play().catch(function () {}); } });
+      navigator.mediaSession.setActionHandler('pause', function () { if (phase === 'playing') { audio.pause(); } });
+    } catch (e) {}
   }
 
-  function frame() {
-    if (!paused) {
-      if (state === 'countdown') {
-        if (elapsed() >= COUNTDOWN_SECONDS) { state = 'running'; begin(FIRST_PHASE); }
-        else { sayCountdown(Math.ceil(COUNTDOWN_SECONDS - elapsed()), COUNTDOWN_SECONDS); }
-      } else if (state === 'running') {
-        var ph = phases[phaseIndex];
-        if (elapsed() >= ph.secs) { advance(); }
-        else if (ph.name === 'Rest') { sayCountdown(Math.ceil(ph.secs - elapsed()), 5); }
-      }
-    }
-    draw();
-    requestAnimationFrame(frame);
-  }
+  // ---- Screen stays awake only while the session is playing in front ----
+  var wakeLock = null;
+  function keepAwake() { try { if ('wakeLock' in navigator) { navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }).catch(function () {}); } } catch (e) {} }
+  function letSleep() { try { if (wakeLock) { wakeLock.release(); } } catch (e) {} wakeLock = null; }
+  document.addEventListener('visibilitychange', function () {
+    // Away from the page the voice keeps going (it is audio); only the drawing stops.
+    if (!document.hidden) { if (phase === 'playing') { keepAwake(); } draw(); }
+  });
 
-  // Speak each remaining whole second once, from `from` down to 1
-  function sayCountdown(remaining, from) {
-    if (remaining >= 1 && remaining <= from && remaining !== lastCount) { lastCount = remaining; speak(String(remaining)); }
+  // ---- Sets control (only while nothing is playing) ----
+  function changeSets(delta) {
+    if (phase === 'playing' || phase === 'paused' || phase === 'starting') { return; }
+    var n = Math.max(MIN_SETS, Math.min(MAX_SETS, sets + delta));
+    if (n === sets) { return; }
+    sets = n; saveSets(n); sched = buildSchedule(n); showSets(); draw(); ensureTrack();
   }
+  lessBtn.addEventListener('click', function () { changeSets(-1); });
+  moreBtn.addEventListener('click', function () { changeSets(1); });
+  canvas.addEventListener('click', tap);
 
-  // ---- Drawing (mirrors the Mac app's circle) ----
+  // ---- Drawing (mirrors the Mac app's circle), driven by the audio position ----
   var cssSize = 0;
   function resize() {
     var w = window.innerWidth, h = window.innerHeight;
-    cssSize = Math.floor(Math.min(w, h) * 0.86);
+    cssSize = Math.floor(Math.min(w * 0.86, h * 0.62));
     var dpr = window.devicePixelRatio || 1;
-    canvas.style.width = cssSize + 'px';
-    canvas.style.height = cssSize + 'px';
-    canvas.width = Math.round(cssSize * dpr);
-    canvas.height = Math.round(cssSize * dpr);
+    canvas.style.width = cssSize + 'px'; canvas.style.height = cssSize + 'px';
+    canvas.width = Math.round(cssSize * dpr); canvas.height = Math.round(cssSize * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     draw();
   }
-
+  function segmentAt(t) {
+    var segs = sched.segments;
+    for (var i = 0; i < segs.length; i++) { if (t < segs[i].t1) { return segs[i]; } }
+    return segs[segs.length - 1];
+  }
   function triangle(cx, cy, d) {
     var h = d * 0.24, w = h * 0.87;
-    ctx.beginPath();
-    ctx.moveTo(cx - w / 3, cy - h / 2);
-    ctx.lineTo(cx + 2 * w / 3, cy);
-    ctx.lineTo(cx - w / 3, cy + h / 2);
-    ctx.closePath();
-    ctx.fillStyle = '#f5f5f5';
-    ctx.fill();
+    ctx.beginPath(); ctx.moveTo(cx - w / 3, cy - h / 2); ctx.lineTo(cx + 2 * w / 3, cy); ctx.lineTo(cx - w / 3, cy + h / 2); ctx.closePath();
+    ctx.fillStyle = '#f5f5f5'; ctx.fill();
   }
-
+  function roundRect(x, y, w, h, color) {
+    var rr = h / 2;
+    ctx.beginPath(); ctx.moveTo(x + rr, y); ctx.lineTo(x + w - rr, y); ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, Math.PI / 2);
+    ctx.lineTo(x + rr, y + h); ctx.arc(x + rr, y + rr, rr, Math.PI / 2, Math.PI * 1.5); ctx.closePath(); ctx.fillStyle = color; ctx.fill();
+  }
+  var FONT = '-apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
   function draw() {
     var side = cssSize; if (!side) { return; }
     var d = side * 0.96, cx = side / 2, cy = side / 2, r = d / 2;
     ctx.clearRect(0, 0, side, side);
 
-    // what to show
     var centerText = '', subText = '', secondsText = '', showPlay = false, progress = 0, hold = false;
-    if (state === 'ready') { showPlay = true; subText = SETS + ' sets'; }
-    else if (state === 'done') { showPlay = true; subText = 'Done'; }
-    else if (state === 'countdown') {
-      var e = Math.max(0, Math.min(COUNTDOWN_SECONDS, elapsed()));
-      centerText = String(Math.max(1, Math.ceil(COUNTDOWN_SECONDS - e)));
-      progress = e / COUNTDOWN_SECONDS; hold = true;
-    } else {
-      var p = phases[phaseIndex];
-      var raw = Math.max(0, Math.min(1, elapsed() / p.secs));
-      progress = (p.name === 'Exhale') ? 1 - raw : raw;   // inhale fills, exhale empties
-      hold = p.hold; centerText = p.name; subText = setsLeft + ' sets left';
-      if (!p.hold) { secondsText = String(p.secs); }   // 13, 8, 5 ... the length of this breath
+    if (phase === 'ready' || phase === 'starting') { showPlay = true; subText = sets + (sets === 1 ? ' set' : ' sets'); }
+    else if (phase === 'done') { showPlay = true; subText = 'Done'; }
+    else {
+      var t = audio.currentTime || 0, sg = segmentAt(t);
+      var raw = Math.max(0, Math.min(1, (t - sg.t0) / sg.secs));
+      if (sg.name === 'countdown') { centerText = String(Math.max(1, Math.ceil(sg.t1 - t))); progress = raw; hold = true; }
+      else {
+        hold = sg.hold; centerText = sg.name; progress = sg.name === 'Exhale' ? 1 - raw : raw;
+        subText = sg.setsLeft + (sg.setsLeft === 1 ? ' set left' : ' sets left');
+        if (!sg.hold) { secondsText = String(sg.secs); }
+      }
     }
 
-    // dark disc
-    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(40,40,40,0.94)'; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(40,40,40,0.94)'; ctx.fill();
 
-    // ring / arc, from the top, clockwise
     var ar = r * 0.88;
     ctx.lineWidth = Math.max(6, side * 0.022); ctx.lineCap = 'round'; ctx.strokeStyle = '#f5f5f5';
-    if (hold) {
-      ctx.beginPath(); ctx.arc(cx, cy, ar, 0, Math.PI * 2); ctx.stroke();
-    } else if (progress > 0) {
-      ctx.beginPath(); ctx.arc(cx, cy, ar, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke();
-    }
+    if (hold) { ctx.beginPath(); ctx.arc(cx, cy, ar, 0, Math.PI * 2); ctx.stroke(); }
+    else if (progress > 0) { ctx.beginPath(); ctx.arc(cx, cy, ar, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke(); }
 
-    // centre: play triangle or phase text / countdown digit
-    if (showPlay) {
-      triangle(cx, cy, d);
-    } else {
+    if (showPlay) { triangle(cx, cy, d); }
+    else {
       ctx.fillStyle = '#f5f5f5'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '500 ' + Math.round(d * 0.10) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
-      ctx.fillText(centerText, cx, cy);
+      ctx.font = '500 ' + Math.round(d * 0.10) + 'px ' + FONT; ctx.fillText(centerText, cx, cy);
     }
-
-    // hold / rest / countdown bar
     if (hold) {
       var bw = d * 0.55, bh = Math.max(6, d * 0.03), bx = cx - bw / 2, by = cy + d * 0.08;
       roundRect(bx, by, bw, bh, 'rgba(255,255,255,0.20)');
       if (progress > 0) { roundRect(bx, by, bw * progress, bh, 'rgba(255,255,255,0.63)'); }
     }
-
-    // this breath's length, between the phase word and the sets line
     if (secondsText) {
       ctx.fillStyle = 'rgba(245,245,245,0.85)'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.font = '500 ' + Math.round(d * 0.075) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
-      ctx.fillText(secondsText, cx, cy + d * 0.125);
+      ctx.font = '500 ' + Math.round(d * 0.075) + 'px ' + FONT; ctx.fillText(secondsText, cx, cy + d * 0.125);
     }
-
-    // sets left / run length / Done
     if (subText) {
       ctx.fillStyle = '#dcdcdc'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.font = Math.round(d * 0.045) + 'px -apple-system, "Helvetica Neue", Helvetica, Arial, sans-serif';
-      ctx.fillText(subText, cx, cy - r + d * 0.72);
+      ctx.font = Math.round(d * 0.045) + 'px ' + FONT; ctx.fillText(subText, cx, cy - r + d * 0.72);
     }
   }
+  function frame() { if (phase === 'playing') { draw(); } requestAnimationFrame(frame); }
 
-  function roundRect(x, y, w, h, color) {
-    var rr = h / 2;
-    ctx.beginPath();
-    ctx.moveTo(x + rr, y);
-    ctx.lineTo(x + w - rr, y); ctx.arc(x + w - rr, y + rr, rr, -Math.PI / 2, Math.PI / 2);
-    ctx.lineTo(x + rr, y + h); ctx.arc(x + rr, y + rr, rr, Math.PI / 2, Math.PI * 1.5);
-    ctx.closePath(); ctx.fillStyle = color; ctx.fill();
-  }
-
-  // Tap anywhere: start, pause, resume
-  document.body.addEventListener('click', tap);
-  // Away from the page (screen locked, app switched): pause, so nothing is missed.
-  document.addEventListener('visibilitychange', function () {
-    if (document.hidden && (state === 'countdown' || state === 'running') && !paused) {
-      paused = true; pausedAt = clock(); letSleep(); hush();
-    }
-  });
   window.addEventListener('resize', resize);
   window.addEventListener('orientationchange', function () { setTimeout(resize, 50); });
+  showSets(); resize(); requestAnimationFrame(frame);
+  ensureTrack().catch(function () { totalEl.textContent = 'Total ' + fmt(sched.end - COUNTDOWN) + ' · voice unavailable'; });
 
-  resize();
-  requestAnimationFrame(frame);
-
-  // Offline copy: the service worker keeps this page and its icons on the
-  // phone, so the Home Screen icon opens with no network at all.
+  // Offline copy: the service worker keeps this page, its icons and the voice
+  // clips on the phone, so the Home Screen icon works with no network at all.
   if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('./sw.js').catch(function () {});
-    });
+    window.addEventListener('load', function () { navigator.serviceWorker.register('./sw.js').catch(function () {}); });
   }
 })();
 </script>

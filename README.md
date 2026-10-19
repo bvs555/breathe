@@ -59,11 +59,20 @@ overlay was showing, and the pop-out toggle. Files live in
 
 ## iPhone page
 
-`docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1 seconds
-in and out), 15 seconds of rest between sets, 5 sets, a 3-2-1 countdown. The phone's
-own voice says Inhale, Exhale and Rest, counts the last five seconds of each rest, and
-says Done. No settings. Tap to start, tap to pause or resume. Locking the phone or switching
-apps pauses it; the screen stays awake while it runs.
+`docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1 seconds in and
+out), 15 seconds of rest between sets, a 3-2-1 countdown. Under the circle, minus and
+plus buttons set the number of sets (1 to 20, remembered on the phone) and the total
+time for that choice is shown. Tap the circle to start, tap again to pause or resume.
+
+The voice (Inhale, Exhale, Rest, the last five seconds of each rest counted down, and
+Done) is one continuous audio track that the page assembles on the phone from the
+small clips in `docs/voice/`, so it keeps playing while another app is in front or the
+screen is locked, with play and pause on the lock screen. The circle follows the audio
+position whenever the page is visible.
+
+The clips are recorded on the Mac by `tools/make_voice_clips.py` with the system voice
+(System Settings > Accessibility > Spoken Content > System Voice). Rerun it after
+changing that voice, then bump `CACHE` in `docs/sw.js`.
 
 ### Put it on the Home Screen
 
@@ -71,12 +80,12 @@ apps pauses it; the screen stays awake while it runs.
 2. Tap Share, then **Add to Home Screen**, then Add.
 
 The icon opens the page full screen. After the first open it works with no network:
-`docs/sw.js` keeps a copy on the phone and refreshes it in the background whenever a
-newer version is published.
+`docs/sw.js` keeps a copy of the page, icons and voice clips on the phone and refreshes
+them in the background whenever a newer version is published.
 
 ### Updating the page
 
-Edit `docs/index.html`, bump `CACHE` in `docs/sw.js` (for example `breathe-v2`), and
+Edit `docs/index.html`, bump `CACHE` in `docs/sw.js` (for example `breathe-v6`), and
 push. Phones pick up the new version on the launch after the next one.
 
 GitHub Pages serves the `docs/` folder of the `main` branch.

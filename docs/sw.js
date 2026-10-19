@@ -2,7 +2,7 @@
 // Cache-first, refreshed in the background: a launch is instant and works with
 // no network; a newer version is picked up on the launch after it is published.
 // Bump CACHE whenever any of the files below changes.
-const CACHE = 'breathe-v4';
+const CACHE = 'breathe-v5';
 const FILES = [
   './',
   './index.html',
@@ -11,6 +11,15 @@ const FILES = [
   './icon-192.png',
   './icon-512.png',
   './icon-maskable-512.png',
+  './voice/inhale.m4a',
+  './voice/exhale.m4a',
+  './voice/rest.m4a',
+  './voice/done.m4a',
+  './voice/1.m4a',
+  './voice/2.m4a',
+  './voice/3.m4a',
+  './voice/4.m4a',
+  './voice/5.m4a',
 ];
 
 self.addEventListener('install', (event) => {
