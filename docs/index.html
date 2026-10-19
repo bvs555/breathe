@@ -32,8 +32,8 @@
 <canvas id="circle" aria-label="Breathing circle. Tap to start. Tap again to pause or resume."></canvas>
 <script>
 (function () {
-  // ---- Hard-coded exercise: Fibonacci from 13, 13 s rest between sets, 5 sets, 3-2-1 countdown ----
-  var FIB_START = 13, REST_SECONDS = 13, SETS = 5, COUNTDOWN_SECONDS = 3;
+  // ---- Hard-coded exercise: Fibonacci from 13, 15 s rest between sets, 5 sets, 3-2-1 countdown ----
+  var FIB_START = 13, REST_SECONDS = 15, SETS = 5, COUNTDOWN_SECONDS = 3;
   var FIB = [1, 2, 3, 5, 8, 13, 21, 34];
   // Same sequence as the Mac app: 13, 8, 5, 3, 2, 1 (each n: n seconds in, n seconds out)
   var seq = FIB.filter(function (n) { return n <= FIB_START; }).reverse();
@@ -57,7 +57,10 @@
   function clock() { return performance.now() / 1000; }
   function now() { return paused ? pausedAt : clock(); }      // time stands still while paused
   function elapsed() { return now() - startedAt - pausedAccum; }
-  function begin(index) { phaseIndex = index; startedAt = clock(); pausedAccum = 0; }
+  function begin(index) {
+    phaseIndex = index; startedAt = clock(); pausedAccum = 0; lastCount = 0;
+    if (state === 'running') { speak(phases[index].name); }
+  }
 
   // ---- Keep the screen awake only while the exercise is actually moving ----
   var wakeLock = null;
@@ -73,13 +76,36 @@
     wakeLock = null;
   }
 
+  // ---- Voice: Inhale / Exhale / Rest, the last five seconds of each rest,
+  // the opening 3-2-1 and Done. Uses the phone's own speech, so it works
+  // offline. Eyes closed, you still know where you are. ----
+  var synth = window.speechSynthesis || null;
+  var utterance = null;            // kept so the browser cannot drop it mid-sentence
+  function speak(text) {
+    if (!synth) { return; }
+    try {
+      synth.cancel();              // never let two cues overlap
+      utterance = new SpeechSynthesisUtterance(text);
+      utterance.lang = 'en-US';
+      utterance.rate = 1.0;
+      var voices = synth.getVoices();
+      for (var i = 0; i < voices.length; i++) {
+        if (/^en/.test(voices[i].lang) && /Samantha|Eva/.test(voices[i].name)) { utterance.voice = voices[i]; break; }
+      }
+      synth.speak(utterance);
+    } catch (e) {}
+  }
+  function hush() { try { if (synth) { synth.cancel(); } } catch (e) {} }
+  var lastCount = 0;               // last spoken countdown number for this phase
+
   function tap() {
     if (state === 'ready' || state === 'done') {
       setsLeft = SETS; paused = false; state = 'countdown'; begin(FIRST_PHASE);
       keepAwake();
+      lastCount = COUNTDOWN_SECONDS; speak(String(COUNTDOWN_SECONDS));   // spoken inside the tap: unlocks speech on iOS
     } else {
       paused = !paused;
-      if (paused) { pausedAt = clock(); letSleep(); }
+      if (paused) { pausedAt = clock(); letSleep(); hush(); }
       else { pausedAccum += clock() - pausedAt; keepAwake(); }
     }
     draw();
@@ -90,7 +116,7 @@
     if (next >= phases.length) {
       next = 0;                                   // Rest, then the next set
       setsLeft -= 1;
-      if (setsLeft <= 0) { state = 'done'; paused = false; letSleep(); return; }
+      if (setsLeft <= 0) { state = 'done'; paused = false; letSleep(); speak('Done'); return; }
     }
     begin(next);
   }
@@ -99,12 +125,20 @@
     if (!paused) {
       if (state === 'countdown') {
         if (elapsed() >= COUNTDOWN_SECONDS) { state = 'running'; begin(FIRST_PHASE); }
+        else { sayCountdown(Math.ceil(COUNTDOWN_SECONDS - elapsed()), COUNTDOWN_SECONDS); }
       } else if (state === 'running') {
-        if (elapsed() >= phases[phaseIndex].secs) { advance(); }
+        var ph = phases[phaseIndex];
+        if (elapsed() >= ph.secs) { advance(); }
+        else if (ph.name === 'Rest') { sayCountdown(Math.ceil(ph.secs - elapsed()), 5); }
       }
     }
     draw();
     requestAnimationFrame(frame);
+  }
+
+  // Speak each remaining whole second once, from `from` down to 1
+  function sayCountdown(remaining, from) {
+    if (remaining >= 1 && remaining <= from && remaining !== lastCount) { lastCount = remaining; speak(String(remaining)); }
   }
 
   // ---- Drawing (mirrors the Mac app's circle) ----
@@ -211,7 +245,7 @@
   // Away from the page (screen locked, app switched): pause, so nothing is missed.
   document.addEventListener('visibilitychange', function () {
     if (document.hidden && (state === 'countdown' || state === 'running') && !paused) {
-      paused = true; pausedAt = clock(); letSleep();
+      paused = true; pausedAt = clock(); letSleep(); hush();
     }
   });
   window.addEventListener('resize', resize);

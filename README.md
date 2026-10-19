@@ -60,8 +60,9 @@ overlay was showing, and the pop-out toggle. Files live in
 ## iPhone page
 
 `docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1 seconds
-in and out), 13 seconds of rest between sets, 5 sets, a 3-2-1 countdown. No sound,
-no settings. Tap to start, tap to pause or resume. Locking the phone or switching
+in and out), 15 seconds of rest between sets, 5 sets, a 3-2-1 countdown. The phone's
+own voice says Inhale, Exhale and Rest, counts the last five seconds of each rest, and
+says Done. No settings. Tap to start, tap to pause or resume. Locking the phone or switching
 apps pauses it; the screen stays awake while it runs.
 
 ### Put it on the Home Screen
