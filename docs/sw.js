@@ -2,7 +2,7 @@
 // Cache-first, refreshed in the background: a launch is instant and works with
 // no network; a newer version is picked up on the launch after it is published.
 // Bump CACHE whenever any of the files below changes.
-const CACHE = 'breathe-v6';
+const CACHE = 'breathe-v7';
 const FILES = [
   './',
   './index.html',

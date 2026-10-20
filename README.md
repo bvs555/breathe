@@ -62,7 +62,7 @@ overlay was showing, and the pop-out toggle. Files live in
 `docs/index.html` is self-contained: Fibonacci from 13 (13, 8, 5, 3, 2, 1 seconds in and
 out), a 3-2-1 countdown. Under the circle, minus and plus buttons set the number of
 sets (1 to 20) and the rest between sets (0 to 21 seconds), both remembered on the
-phone, and the total time for that choice is shown. Tap the circle to start, tap again to pause or resume.
+phone, a Mute switch (on means no voice), and the total time for that choice is shown. Tap the circle to start, tap again to pause or resume.
 
 The voice (Inhale, Exhale, Rest, the last five seconds of each rest counted down, and
 Done) is one continuous audio track that the page assembles on the phone from the
